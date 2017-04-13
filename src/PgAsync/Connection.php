@@ -29,7 +29,6 @@ use PgAsync\Message\ReadyForQuery;
 use PgAsync\Message\RowDescription;
 use PgAsync\Command\StartupMessage;
 use React\EventLoop\LoopInterface;
-use React\SocketClient\Connector;
 use React\Stream\Stream;
 use Rx\Observable\AnonymousObservable;
 use Rx\ObserverInterface;
@@ -73,6 +72,7 @@ class Connection extends EventEmitter
     private $socket;
 
     private $parameters;
+    private $resolverParameters;
 
     /** @var LoopInterface */
     private $loop;
@@ -138,6 +138,9 @@ class Connection extends EventEmitter
             unset($parameters['auto_disconnect']);
         }
 
+        $this->resolverParameters = $parameters['resolver'] ?? [];
+        unset($parameters['resolver']);
+
         $this->parameters   = $parameters;
         $this->loop         = $loop;
         $this->commandQueue = new \SplQueue();
@@ -164,13 +167,17 @@ class Connection extends EventEmitter
 
         $this->connStatus = static::CONNECTION_STARTED;
 
-        $this->socket = new Connector($this->loop, $this->getDnsResolver());
+        $this->socket = new Connector(
+            $this->loop,
+            $this->getDnsResolver(),
+            $this->resolverParameters
+        );
 
         $this->socket->create($this->parameters["host"], $this->parameters["port"])->then(
             function (Stream $stream) {
                 $this->stream     = $stream;
                 $this->connStatus = static::CONNECTION_MADE;
-                
+
                 $stream->on('close', [$this, 'onClose']);
 
                 $stream->on('data', [$this, 'onData']);
@@ -244,13 +251,13 @@ class Connection extends EventEmitter
 //            echo "Unhandled message \"".$type."\"";
 //        }
     }
-    
+
     public function onClose()
     {
         $this->connStatus = static::CONNECTION_CLOSED;
         $this->emit('close');
     }
-    
+
     public function getConnectionStatus()
     {
         return $this->connStatus;
